@@ -12,7 +12,7 @@ Adafruit_SSD1306 display(128, 64, &Wire, -1);
 void setup() {
 
 display.begin(SSD1306_SWITCHCAPVCC, 0x3C);  // Inicia o diplay OLED
-limpaTela(); //chama a função para limpar as informações do display
+display.clearDisplay(); //limpa a tela na proxima vez que for chamada a funcao display.display();
 
 }
 
@@ -23,8 +23,7 @@ void loop() {
   display.println("ROBOTICA CPM!"); //mensagem de texo a ser impressa na tela
   display.display(); //manda as informações para o visor
   delay(1000);
+  display.clearDisplay(); //limpa a tela na proxima vez que for chamada a funcao display.display();
 }
-void limpaTela(){ //funcao para facilitar a limpeza de imformações do display
-display.clearDisplay();
-display.display();  
-}
+
+
