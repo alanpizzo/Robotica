@@ -1,0 +1,44 @@
+/*==================================================================================================
+ *              R O B Ó T I C A     2° C P M  -  L O N D R I N A
+ *==================================================================================================              
+ *                     TESTADOR PARA SENSORES INFRAVERMELHO
+ ===================================================================================================
+ 
+ Variáveis e definições
+ ===================================================================================================*/
+#define sensor1 2
+#define sensor2 7
+
+void setup() {
+
+/*Pinagem
+ ===================================================================================================*/
+pinMode(sensor1,INPUT);
+pinMode(sensor2,INPUT);
+
+Serial.begin(9600);//Inicia o monitor serial na velocidade 9600 bauds/s
+;
+}
+void loop() {
+
+bool leitSensor1=digitalRead(sensor1);//variável para leitura do sensor 1
+bool leitSensor2=digitalRead(sensor2);//variável para leitura do sensor 1
+
+/* Comandos para printar informações no monitor serial
+ *  0 - O sensor não reflete luz (não há objeto colorido próximo)ou o objeto é preto
+ *  1 - O sensor reflete luz (há objetos coloridos próximos ao sensor)
+ *  ================================================== */
+Serial.println("ROBÓTICA 2 CPM - LONDRINA");
+
+Serial.println("==================================");
+Serial.println("Sensores infravermelhos");
+Serial.println("==================================");
+Serial.print("Leitura do sensor 1 = ");
+Serial.println(leitSensor1);
+Serial.print("Leitura do sensor 2 = ");
+Serial.println(leitSensor2);
+Serial.println("==================================");
+
+delay(700); //pausa para facilitar a leitura das informações
+
+}
