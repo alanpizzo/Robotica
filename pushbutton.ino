@@ -1,22 +1,26 @@
-// Ligando LED com push button
-//  Autor: Luan Alves - www.guiarobotica.com
-int pushbutton = 2; // declara o push button na porta 2
-int led = 13; // declara led na porta 13
-bool estadoled = 0; // variavel de controle
+/*=======================================================================================================================================
+=                                     R O B Ó T I C A     2  C P M - L O N D R I N A                                                    =
+=                                                                                                                                       =
+=                                           P U S H B U T T O N                                                                         =
+=========================================================================================================================================*/
 
-void setup()
-{
-  pinMode(pushbutton, INPUT_PULLUP); // define o pino do botao como entrada
-  pinMode(led, OUTPUT);// define LED como saida
+/* Variáveis e definições
+=========================================================================================================================================*/
+#define pinoBT  2 // define o pino do botão
+#define pinoLed  13 // define o pino do led
+bool estadoLed = LOW; // declara a variável que vai controlar o estado do led
+
+void setup(){
+  pinMode(pinoBT, INPUT_PULLUP); // define o modo do pino do botão 
+  pinMode(pinoLed, OUTPUT);// define o pino do led como saída
 }
 
-void loop()
-{
-  if (digitalRead(pushbutton) == LOW) // Se o botão for pressionado
+void loop(){
+  if (digitalRead(pinoBT) == LOW) // Se o botão for pressionado
   {
-    estadoled = !estadoled; // troca o estado do LED
-    digitalWrite(led, estadoled);
-    while (digitalRead(pushbutton) == LOW);
-    delay(100);
+    estadoLed = !estadoLed; // troca o estado do LED
+    digitalWrite(pinoLed, estadoLed);
+    while (digitalRead(pinoBT) == LOW);
+    delay(50);
   }
 }
