@@ -1,0 +1,47 @@
+/*=======================================================================================================================================
+=                                               R O B Ó T I C A     2 C P M                                                             =
+=                                               Controlador remoto do cofre                                                             =
+=========================================================================================================================================
+
+Bibliotecas
+=========================================================================================================================================*/
+#include "thingProperties.h" //biblioteca de IOT internet das coisas
+
+//Variáveis e definições
+//=======================================================================================================================================
+#define pinoLed 2 //define o pino 2 para o led
+char comando='B'; //inicializa a variável comando com valor B que bloqueia o cofre
+
+void setup() {
+  pinMode(pinoLed,OUTPUT);//define modo do pino do led
+  Serial.begin(9600); //inicializa comunicação serial
+  delay(1500); //delay para não sobrecarregar a transmissão de dados
+  
+  initProperties(); //inicializa internet das coisas
+
+  ArduinoCloud.begin(ArduinoIoTPreferredConnection); //conexão com a nuvem arduino cloud iot
+  
+//funções que avaliam erro nas trocas de pacote entre a nuvem e o ESP01
+  setDebugMessageLevel(2);
+  ArduinoCloud.printDebugInfo();
+}
+
+void loop() {
+  ArduinoCloud.update(); //atualiza valores da nuvem controlados pela dashboard
+
+  onControleChange(); //função que define as rotinas a sererm executadas quando a variável da nuvem é alterada
+  Serial.write(comando); //envia o valor da variável comando pela Serial
+  delay(150); // delay para evitar sobrecarga no envio de informações pela Serial.
+  
+}
+
+void onControleChange()  {
+ 
+  digitalWrite(pinoLed,controle); //acende ou apaga o pino do led conforme o valor atualizado na dashboard
+  if(controle==HIGH){//se controle está em HIGH o led fica aceso e o arduíno recebe o valor 'A' na serial
+    comando='A';
+  }
+  else{ //se controle esté em LOW o led apaga e o arduíno recebe o valor 'B' na serial.
+    comando='B';
+  }
+}
