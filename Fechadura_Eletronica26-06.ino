@@ -5,17 +5,18 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <Keypad.h> //biblioteca do teclado matricial
-#include<Servo.h>//biblioteca do servo motor
 
 
 /*Variáveis e definições
 ===================================================================================================================*/
-char* password = "123"; /* Define a senha para destravar a fechadura.               */
-int caracteres = 3; /* Quantidade de caracteres que a senha possui.             */
-#define ledVermelho 13 //pino do led vermelho
+char comandoCentral=Serial.read();
+
+char* password = "4321"; /* Define a senha para destravar a fechadura.               */
+int caracteres = 4; /* Quantidade de caracteres que a senha possui.
+*/
+//#define pinoLedWifi 23 //pino do led que informa sobre a autorização ou não da central de segurança
 #define pinoBuzzer 11//pino do buzzer
-#define ledVerde 12 //pino do led verde
-#define Pin_Servo 10 //pino do servo
+#define pinoFechadura 10 //pino da fechadura
 int posicao = 0; //controle da posição do servo
                                              
 #define qtdLinhas 4 //define o número de linhas do teclado matricial de membrana
@@ -33,18 +34,16 @@ byte PinosqtdColunas[qtdColunas] = {5, 4, 3, 2};/* Define os pinos de controle d
 
 /*Objetos
 ===================================================================================================================*/
-Servo servo; //instancia servo motor
 Adafruit_SSD1306 display(128, 64, &Wire, -1); //Display OLED 128X64
 Keypad meuteclado = Keypad( makeKeymap(matriz_teclas), PinosqtdLinhas, PinosqtdColunas, qtdLinhas, qtdColunas);
 
 
 void setup() {
-  pinMode(ledVermelho, OUTPUT);  /* Configura os pinos dos LEDs como saída.  */
   pinMode(pinoBuzzer,OUTPUT);
-  pinMode(ledVerde, OUTPUT);  /* Configura os pinos dos LEDs como saída.                */
+  pinMode(pinoFechadura,OUTPUT);
+//  pinMode(pinoLedWifi,OUTPUT);
 
-  servo.attach(Pin_Servo); //atribui a porta Pin_servo para o servomotor
-  
+  Serial.begin(9600);
 
   display.begin(SSD1306_SWITCHCAPVCC, 0x3C);  // Inicia o diplay OLED
   limpaTela(); //chama a função para limpar as informações do display
@@ -64,6 +63,8 @@ void setup() {
 
 }
 void loop() {
+  Serial.println(comandoCentral);
+  char comandoCentral = Serial.read(); 
   /* Armazena na variável key a tecla pressionada.          */
   char key = meuteclado.getKey();
   /* Se a tecla pressionada for "*" ou "#" reinicia a       */
@@ -81,7 +82,7 @@ void loop() {
   if (key == password[posicao]) {
     posicao ++;
   }
-  if (posicao == caracteres) {
+  if ((posicao == caracteres)&&(comandoCentral=='A')) {
     destrancada();
   }
   /* Pequena pausa para retomar a leitura.                  */
@@ -91,11 +92,9 @@ void loop() {
 void trancada()
 {
   /* LED Vermelho acende.                                   */
-  digitalWrite(ledVermelho, HIGH);
   /* LED Verde apaga.                                       */
-  digitalWrite(ledVerde, LOW);
   /* Servo na posição trancada.                             */
-  servo.write(90);
+  digitalWrite(pinoFechadura,LOW);
   /* Imprime a palavra no Monitor Serial.                   */
  
   testfillroundrect();
@@ -124,12 +123,9 @@ void trancada()
 void destrancada()
 {
   /* LED Verde acende.                                      */
-  digitalWrite(ledVerde, HIGH);
   /* LED Vermelho apaga.                                    */
-  digitalWrite(ledVermelho, LOW);
   /* Servo na posição destrancada.                          */
-  servo.write(180);
-
+  digitalWrite(pinoFechadura,HIGH);
   testfillroundrect(); // Draw rounded rectangles (outlines)
   delay(500);
   display.clearDisplay();
