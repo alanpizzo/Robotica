@@ -1,0 +1,36 @@
+/*======================================================================================
+|
+|                   R  O  B  Ó  T  I  C  A      2  C  P M
+|
+|                C o n t a d o r - D i s p l a y    T M 1 6 3 7
+|
+========================================================================================
+Bibliotecas
+=================================*/
+#include <TM1637Display.h>
+
+/*Variáveis e definições
+=================================*/
+#define CLK A4  //Definição do pino clock do display
+#define DIO A5  //Definição do pino de dados do display
+
+/*Instanciação de objetos
+=================================*/
+TM1637Display meuVisor(CLK, DIO);  //Instanciação do visor TM1637
+
+void setup() {
+  meuVisor.setBrightness(15);  //regulagem do brilho, aceita valores de 0 a 15
+}  //fim setup
+
+void loop() {
+  contagem();  //chama a função contagem
+}  //fim loop
+
+/*Funções
+=================================*/
+void contagem() {  //função que executará a contagem
+  for (int contador = 0; contador <= 9999; contador++) {
+    meuVisor.showNumberDec(contador, false);
+    delay(10);
+  }  //fim do laço for
+}  //fim da função
