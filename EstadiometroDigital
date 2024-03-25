@@ -1,0 +1,84 @@
+/*=======================================================================================
+   |
+   |                    E S T A D I Ô M E T R O    D I G I T A L
+   |
+   |                          R O B Ó T I C A    2 C P M
+  =======================================================================================
+  Inclusão de bibliotecas
+  ===============================================*/
+#include <MatrizLed.h> //controle da matriz de led
+#include <Wire.h>  //biblioteca auxiliar
+
+/*Variáveis e definições
+  ===============================================*/
+int alturaSensor = 210; //altura que o sensor TOF10120 se encontra do chão
+unsigned char ok_flag; //flag de controle do sensor TOF10120
+unsigned char fail_flag; //flag de controle do sensor TOF10120
+unsigned short lenth_val = 0; //variável de configuração do sensor TOF10120
+unsigned char i2c_rx_buf[16]; //variável de configuração do sensor TOF10120
+unsigned char dirsend_flag = 0; //variável de configuração do sensor TOF10120
+int altura = 170;
+
+
+/*Instanciação de objetos
+  ===============================================*/
+MatrizLed visorAltura; //instancia o conjunto de matrizes de led
+
+
+void setup() {
+  Wire.begin(); //inicializa a biblioteca auxliar Wire
+  Serial.begin(9600); //inicializa a comunicação serial
+
+  /*Configurações iniciais da matriz de led
+     ===============================================*/
+  visorAltura.begin(12, 11, 10, 4); // dataPin, clkPin, csPin, numero de matrizes de 8x8
+  visorAltura.rotar(false);
+}
+
+void loop() {
+  int x = ReadDistance(); //armazena na variável x o valor da distância medida pelo sensor
+  int altura = alturaSensor - x / 10; //faz a diferença entre a altura do sensor e a distância da pessoa até o sensor em cm
+  Serial.print("Altura: "); //imprime informações no monitor serial
+  Serial.print(altura);//imprime informações no monitor serial
+  Serial.println(" cm");//imprime informações no monitor serial
+  visorAltura.borrar(); //limpa as informações da matriz de led
+  visorAltura.escribirCifra(altura); //imprime no conjunto de matrizes de led o valor da variável altura
+  delay(1000);
+}
+
+/*Variáveis e funções auxiliares
+   ===============================================*/
+int serial_putc( char c, struct __file * )
+{
+  Serial.write( c );
+  return c;
+}
+
+void SensorRead(unsigned char addr, unsigned char* datbuf, unsigned char cnt)
+{
+  unsigned short result = 0;
+  // passo 1: Leitura do retorno do laser
+  Wire.beginTransmission(82); /* transmite para o sensor TOF10120 no endereço #82 (0x52)
+  o endereço especificado no datasheet é 164 (0xa4)
+  mas o endereço i2c usa alto 7 bits então temos #82*/
+  Wire.write(byte(addr));      // configura a distância no data address (addr)
+  Wire.endTransmission();      // para a transmissão
+  // passo 2: aguarda a leitura acontecer
+  delay(1);                   // datasheet sugere pelo menos 30uS microsegundos
+  // passo 3: requisita a leitura do sensor
+  Wire.requestFrom(82, cnt);    // requisita cnt bytes do dispositivo escravo #82 (0x52)
+  // passo 5: recebe a leitura do sensor
+  if (cnt <= Wire.available()) { // se dois bytes forem recebidos
+    *datbuf++ = Wire.read();  // receber high byte (escreve sobre a leitura anterior)
+    *datbuf++ = Wire.read(); // recebe low byte como mais baixo que 8 bits
+  }
+}
+//Trata a leitura para ser utilizada na serial ou algum display
+int ReadDistance() {
+  SensorRead(0x00, i2c_rx_buf, 2);
+  lenth_val = i2c_rx_buf[0];
+  lenth_val = lenth_val << 8;
+  lenth_val |= i2c_rx_buf[1];
+  delay(300);
+  return lenth_val;
+}
