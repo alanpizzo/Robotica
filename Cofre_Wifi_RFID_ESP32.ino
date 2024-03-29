@@ -25,8 +25,8 @@
 #define pinoLedverde 12     //pino do led verde
 #define pinoTrava 33        //pino do solenóide
 #define pinLedazul 5        //pino led azul 
-const char* ssid     = "CLARO_EF05E3";
-const char* password = "ZqYMJvXWT7";
+const char* ssid     = "digitar o nome da rede entre aspas";
+const char* password = "digitar senha da rede wifi entre aspas";
 
 /*Instanciação de objetos
   ===================================================================================================*/
