@@ -1,0 +1,72 @@
+#include <WiFiNINA.h>
+#include <ArduinoMqttClient.h>
+
+// Configurações WiFi
+const char* ssid = "2CPM_ROBOTICA";
+const char* password = "#@robotica1";
+
+// Configurações MQTT
+const char* mqtt_server = "broker.hivemq.com";
+const char* mqtt_topic = "cpm/cofre/status";
+
+WiFiClient wifiClient;
+MqttClient mqttClient(wifiClient);
+
+const int ledPin = 2; // Pino do LED
+
+void setup() {
+  pinMode(ledPin, OUTPUT);
+  Serial.begin(9600);
+
+  // Conectar ao WiFi
+  connectWiFi();
+
+  // Conectar ao broker MQTT
+  connectMQTT();
+}
+
+void loop() {
+  if (!mqttClient.connected()) {
+    connectMQTT(); // Reconectar se a conexão for perdida
+  }
+  mqttClient.poll(); // Processar mensagens recebidas
+}
+
+void connectWiFi() {
+  Serial.print("Conectando ao WiFi...");
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+    Serial.print(".");
+  }
+  Serial.println("\nConectado ao WiFi!");
+}
+
+void connectMQTT() {
+  Serial.print("Conectando ao broker MQTT...");
+
+  while (!mqttClient.connect(mqtt_server, 1883)) { // Corrigido: Usar 'connect' em vez de 'begin'
+    Serial.print(".");
+    delay(1000);
+  }
+
+  Serial.println("\nConectado ao broker MQTT!");
+  mqttClient.subscribe(mqtt_topic); // Assinar tópico
+  mqttClient.onMessage(onMessageReceived); // Configurar callback para mensagens
+}
+
+void onMessageReceived(int messageSize) {
+  String message;
+  while (mqttClient.available()) {
+    message += (char)mqttClient.read();
+  }
+
+  Serial.print("Mensagem recebida: ");
+  Serial.println(message);
+
+  if (message == "H") {
+    digitalWrite(ledPin, HIGH); // Liga o LED
+  } else if (message == "L") {
+    digitalWrite(ledPin, LOW); // Desliga o LED
+  }
+}
