@@ -1,0 +1,165 @@
+#include <WiFi.h>
+#include <PubSubClient.h>
+#include <MFRC522.h>
+#include <SPI.h>
+
+// **Configurações da rede WiFi**
+const char* ssid = "2CPM_ROBOTICA";  
+const char* password = "#@robotica1";  
+
+// **Configuração do servidor MQTT**
+const char* mqttServer = "broker.hivemq.com";
+const int mqttPort = 1883;
+const char* mqttTopicRequest = "trava/solicitacao";  
+const char* mqttTopicResponse = "trava/liberacao";  
+
+WiFiClient espClient;
+PubSubClient mqttClient(espClient);
+
+// **Pinos do relé e leitor RFID**
+const int relePin = 5;  
+const int rfidSSPin = 21;  // Pin SS para o leitor RFID
+const int rfidRSTPin = 22; // Pin RST para o leitor RFID
+MFRC522 rfid(rfidSSPin, rfidRSTPin);
+
+// **Variáveis Globais**
+bool aguardandoLiberacao = false;
+unsigned long tempoSolicitacao = 0;
+
+// **Lista de tags RFID válidas**
+String tagsValidas[] = {"99 05 80 72", "E7 31 77 53", "60 2F B8 89"};
+
+// **Instruções para a conexão física do leitor RFID ao Arduino/ESP32**
+/*
+  - Conecte o pino SDA (SS) do MFRC522 ao GPIO 21 do ESP32.
+  - Conecte o pino RST ao GPIO 22 do ESP32.
+  - Conecte os pinos MOSI, MISO e SCK ao respectivo barramento SPI:
+      MOSI -> GPIO 23,
+      MISO -> GPIO 19,
+      SCK -> GPIO 18.
+  - Conecte o pino VCC ao 3.3V do ESP32.
+  - Conecte o pino GND ao GND do ESP32.
+
+  Para Arduino Uno:
+  - SDA -> Pin 10,
+  - SCK -> Pin 13,
+  - MOSI -> Pin 11,
+  - MISO -> Pin 12,
+  - RST -> Pin 9,
+  - VCC -> 3.3V ou 5V (dependendo do modelo do MFRC522),
+  - GND -> GND.
+*/
+
+void conectarWiFi() {
+    Serial.print("Conectando ao WiFi...");
+    WiFi.begin(ssid, password);
+    while (WiFi.status() != WL_CONNECTED) {
+        delay(1000);
+        Serial.print(".");
+    }
+    Serial.println("Conectado ao WiFi!");
+}
+
+void conectarMQTT() {
+    Serial.print("Conectando ao broker MQTT...");
+    mqttClient.setServer(mqttServer, mqttPort);
+    mqttClient.setCallback(callback);
+
+    while (!mqttClient.connected()) {
+        Serial.print(".");
+        mqttClient.connect("ESP32Client");
+        delay(2000);
+    }
+    Serial.println("Conectado ao MQTT!");
+    mqttClient.subscribe(mqttTopicResponse);
+}
+
+bool tagValida(String tag) {
+    for (String validTag : tagsValidas) {
+        if (validTag == tag) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void verificarRFID() {
+    if (!rfid.PICC_IsNewCardPresent() || !rfid.PICC_ReadCardSerial()) {
+        return;
+    }
+
+    String tagID = "";
+    for (byte i = 0; i < rfid.uid.size; i++) {
+        tagID += String(rfid.uid.uidByte[i], HEX);
+        if (i < rfid.uid.size - 1) {
+            tagID += " ";
+        }
+    }
+
+    Serial.print("Tag detectada: ");
+    Serial.println(tagID);
+
+    if (tagValida(tagID)) {
+        Serial.println("Tag autorizada. Enviando solicitação de acesso...");
+        mqttClient.publish(mqttTopicRequest, "solicitacao");
+        aguardandoLiberacao = true;
+        tempoSolicitacao = millis();
+    } else {
+        Serial.println("Acesso negado. Tag inválida.");
+    }
+}
+
+void inicializarRFID() {
+    SPI.begin();
+    rfid.PCD_Init();
+}
+
+void inicializarRele() {
+    pinMode(relePin, OUTPUT);
+    digitalWrite(relePin, LOW);
+}
+
+void inicializarWiFiEMQTT() {
+    conectarWiFi();
+    conectarMQTT();
+}
+
+void inicializarDispositivos() {
+    Serial.begin(115200);
+    inicializarRele();
+    inicializarRFID();
+    inicializarWiFiEMQTT();
+}
+
+void callback(char* topic, byte* payload, unsigned int length) {
+    String mensagem = "";
+    for (unsigned int i = 0; i < length; i++) {
+        mensagem += (char)payload[i];
+    }
+    
+    Serial.print("Mensagem MQTT recebida: ");
+    Serial.println(mensagem);
+
+    if (mensagem == "liberar" && aguardandoLiberacao) {
+        digitalWrite(relePin, HIGH);
+        Serial.println("Trava aberta!");
+        aguardandoLiberacao = false;
+    }
+}
+
+void verificarTempoSolicitacao() {
+    if (aguardandoLiberacao && (millis() - tempoSolicitacao > 60000)) {
+        Serial.println("Tempo expirado. Use a tag novamente.");
+        aguardandoLiberacao = false;
+    }
+}
+
+void setup() {
+    inicializarDispositivos();
+}
+
+void loop() {
+    mqttClient.loop();
+    verificarRFID();
+    verificarTempoSolicitacao();
+}
