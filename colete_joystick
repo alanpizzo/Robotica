@@ -1,0 +1,104 @@
+#include <Arduino.h>
+
+// Definição dos pinos do sensor ultrassônico
+#define TRIGGER_PIN 7   // Pino de envio de pulso
+#define ECHO_PIN 6      // Pino de recepção do eco
+
+// Definição dos pinos do motor de vibração
+#define MOTOR_PIN 9     // Motor vibratório
+
+// Definição dos pinos dos botões da Joystick Shield
+#define BOTAO_A 2       // Aumenta "longe"
+#define BOTAO_B 3       // Aumenta "perto"
+#define BOTAO_C 4       // Diminui "longe"
+#define BOTAO_D 5       // Diminui "perto"
+
+#define JOYSTICK_X A0   // Controla o tempo de vibração
+#define JOYSTICK_Y A1   // Não utilizado no momento
+
+// Variáveis de configuração
+int perto = 110;       // Distância "perto"
+int longe = 200;       // Distância "longe"
+int tempoVibracao = 200; // Tempo inicial de vibração em ms
+
+void setup() {
+    Serial.begin(9600);
+
+    configurarPinos();
+    Serial.println("Sistema iniciado!");
+}
+
+void loop() {
+    long distancia = medirDistancia();
+
+    ajustarDistancias();  
+    ajustarTempoVibracao();
+    controlarMotor(distancia);
+
+    imprimirStatus(distancia);
+    delay(100);
+}
+
+// Configuração dos pinos do hardware
+void configurarPinos() {
+    pinMode(TRIGGER_PIN, OUTPUT);
+    pinMode(ECHO_PIN, INPUT);
+    pinMode(MOTOR_PIN, OUTPUT);
+
+    pinMode(BOTAO_A, INPUT_PULLUP);
+    pinMode(BOTAO_B, INPUT_PULLUP);
+    pinMode(BOTAO_C, INPUT_PULLUP);
+    pinMode(BOTAO_D, INPUT_PULLUP);
+}
+
+// Função que mede a distância com o sensor ultrassônico
+long medirDistancia() {
+    digitalWrite(TRIGGER_PIN, LOW);
+    delayMicroseconds(2);
+    digitalWrite(TRIGGER_PIN, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(TRIGGER_PIN, LOW);
+
+    long duracao = pulseIn(ECHO_PIN, HIGH);
+    return duracao * 0.034 / 2; // Converte tempo em cm
+}
+
+// Função que ajusta os valores das distâncias conforme os botões pressionados
+void ajustarDistancias() {
+    if (digitalRead(BOTAO_A) == LOW) { longe += 5; delay(200); }
+    if (digitalRead(BOTAO_C) == LOW && longe > perto + 5) { longe -= 5; delay(200); }
+    if (digitalRead(BOTAO_B) == LOW) { perto += 5; delay(200); }
+    if (digitalRead(BOTAO_D) == LOW && perto < longe - 5) { perto -= 5; delay(200); }
+}
+
+// Função que ajusta o tempo de vibração com base no joystick analógico
+void ajustarTempoVibracao() {
+    tempoVibracao = map(analogRead(JOYSTICK_X), 0, 1023, 100, 1000);
+}
+
+// Função que controla a vibração do motor com base na distância medida
+void controlarMotor(long distancia) {
+    if (distancia <= perto) {
+        vibrarMotor(tempoVibracao); // Vibração forte
+    } else if (distancia > perto && distancia <= longe) {
+        vibrarMotor(tempoVibracao / 2); // Vibração suave
+    } else {
+        digitalWrite(MOTOR_PIN, LOW); // Sem vibração
+    }
+}
+
+// Função que faz o motor vibrar por um período determinado
+void vibrarMotor(int tempo) {
+    digitalWrite(MOTOR_PIN, HIGH);
+    delay(tempo);
+    digitalWrite(MOTOR_PIN, LOW);
+    delay(tempo);
+}
+
+// Função que exibe os dados no monitor serial
+void imprimirStatus(long distancia) {
+    Serial.print("Distância: "); Serial.print(distancia); Serial.print(" cm | ");
+    Serial.print("Perto: "); Serial.print(perto); Serial.print(" cm | ");
+    Serial.print("Longe: "); Serial.print(longe); Serial.print(" cm | ");
+    Serial.print("Vibração: "); Serial.print(tempoVibracao); Serial.println(" ms");
+}
