@@ -1,0 +1,211 @@
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <WiFi.h>
+#include <PubSubClient.h>
+#include <Adafruit_PN532.h>
+#include <ArduinoOTA.h>
+
+// -------------------- Configuração de hardware --------------------
+// Definição dos parâmetros do display OLED
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET -1
+#define OLED_SDA 8  
+#define OLED_SCL 9  
+
+// Definição do pino de controle de trava
+#define LOCK_PIN 10  
+
+// Definição dos pinos I2C para o PN532 NFC
+#define PN532_SDA 8  
+#define PN532_SCL 9  
+
+// Instância dos periféricos
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+Adafruit_PN532 nfc(PN532_SDA, PN532_SCL);
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+// -------------------- Credenciais de rede --------------------
+const char *ssid = "2CPM_ROBOTICA";    
+const char *password = "#@robotica1";  
+const char *mqtt_server = "broker.hivemq.com";
+
+// Lista de TAGs válidas (IDs gravados para acesso autorizado)
+const String validTags[] = {"99 05 80 72", "E7 31 77 53", "60 2F B8 89"};
+
+// -------------------- Inicialização de periféricos --------------------
+// Inicializa os pinos de controle
+void setupPins() {
+  pinMode(LOCK_PIN, OUTPUT);
+  digitalWrite(LOCK_PIN, LOW);
+}
+
+// Inicializa o display OLED
+void setupDisplay() {
+  Wire.begin(OLED_SDA, OLED_SCL);
+  
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println("Falha ao iniciar o OLED");
+    while (true);
+  }
+  
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+}
+
+// Inicializa o módulo NFC (PN532)
+void setupNFC() {
+  Wire.begin(PN532_SDA, PN532_SCL);
+  nfc.begin();
+
+  uint32_t versiondata = nfc.getFirmwareVersion();
+  
+  if (!versiondata) {
+    Serial.println("Não foi possível encontrar o PN532.");
+    while (true);
+  }
+  
+  nfc.SAMConfig(); // Configura o PN532 para leitura de TAGs
+}
+
+// -------------------- Conexões de rede --------------------
+// Estabelece conexão WiFi
+void connectWiFi() {
+  displayMessage("Conectando ao WiFi...");
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(1000);
+    Serial.print(".");
+  }
+
+  Serial.println("\nWiFi conectado!");
+  displayMessage("WiFi OK\nIP: " + WiFi.localIP().toString());
+}
+
+// Estabelece conexão MQTT
+void connectMQTT() {
+  displayMessage("Conectando ao MQTT...");
+  client.setServer(mqtt_server, 1883);
+  client.setCallback(mqttCallback);
+
+  while (!client.connected()) {
+    if (client.connect("ESP32S2_Client")) {
+      Serial.println("Conectado ao MQTT!");
+      displayMessage("MQTT OK");
+      client.subscribe("trava/liberacao");
+    } else {
+      Serial.print("Falha na conexão MQTT. Tentando novamente...");
+      delay(5000);
+    }
+  }
+}
+
+// -------------------- Funções auxiliares --------------------
+// Inicializa suporte para OTA (atualização remota)
+void setupOTA() {
+  ArduinoOTA.begin();
+}
+
+// Exibe mensagem no display OLED
+void displayMessage(String msg) {
+  display.clearDisplay();
+  display.setCursor(0, 10);
+  display.println(msg);
+  display.display();
+}
+
+// -------------------- Lógica de leitura de TAG --------------------
+// Lê e retorna o ID de uma TAG NFC detectada
+String readTag() {
+  uint8_t uid[7] = {0};  // Buffer para armazenar o UID
+  uint8_t uidLength;
+
+  if (nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A, uid, &uidLength)) {
+    String tagID = "";
+    for (uint8_t i = 0; i < uidLength; i++) {
+      tagID += String(uid[i], HEX);
+      if (i < uidLength - 1) tagID += " ";
+    }
+    
+    Serial.println("Tag lida: " + tagID);
+    return tagID;
+  }
+  
+  return "";  // Retorna string vazia se nenhuma TAG foi lida
+}
+
+// Processa a TAG lida e verifica se está autorizada
+void processTag(String tagID) {
+  if (tagID.isEmpty()) return;
+
+  bool authorized = false;
+
+  for (String validTag : validTags) {
+    if (tagID.equalsIgnoreCase(validTag)) {
+      authorized = true;
+      break;
+    }
+  }
+
+  if (!authorized) {
+    displayMessage("Não autorizado");
+    client.publish("trava/solicitacao", "tag invalida");
+    delay(2000);
+    return;
+  }
+
+  client.publish("trava/solicitacao", "solicitacao");
+}
+
+// -------------------- Comunicação via MQTT --------------------
+// Trata mensagens recebidas do servidor MQTT
+void mqttCallback(char* topic, byte* payload, unsigned int length) {
+  String message = "";
+  for (unsigned int i = 0; i < length; i++) {
+    message += (char)payload[i];
+  }
+
+  if (String(topic) == "trava/liberacao") {
+    if (message == "liberar") {
+      displayMessage("Liberado");
+      digitalWrite(LOCK_PIN, HIGH);
+      delay(180000); // Mantém a trava aberta por 3 minutos
+      digitalWrite(LOCK_PIN, LOW);
+    } else if (message == "negar") {
+      displayMessage("Não autorizado");
+      delay(2000);
+    }
+  }
+}
+
+// -------------------- Setup e Loop principal --------------------
+void setup() {
+  Serial.begin(115200);
+  setupPins();
+  setupDisplay();
+  setupNFC();
+  connectWiFi();
+  connectMQTT();
+  setupOTA();
+  displayMessage("Aproxime a TAG NFC");
+}
+
+void loop() {
+  client.loop();
+  ArduinoOTA.handle();
+
+  while (true) {
+    client.loop();
+    ArduinoOTA.handle();
+
+    String tagID = readTag();
+    processTag(tagID);
+
+    delay(100);
+  }
+}
