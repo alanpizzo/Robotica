@@ -1,0 +1,194 @@
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <WiFi.h>
+#include <PubSubClient.h>
+#include <Adafruit_PN532.h>
+#include <ArduinoOTA.h>
+
+// Configurações do hardware
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET -1
+#define OLED_SDA 17    // Barramento I2C para OLED
+#define OLED_SCL 16
+#define PN532_SDA 22   // Barramento I2C para PN532
+#define PN532_SCL 21
+#define LOCK_PIN 25
+
+// Inicialização do display OLED
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+// Inicialização do PN532
+Adafruit_PN532 nfc(PN532_SDA, PN532_SCL);
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+
+const char *ssid = "2CPM_ROBOTICA";
+const char *password = "#@robotica1";
+const char *mqtt_server = "broker.hivemq.com";
+
+const String validTags[] = {"99 05 80 72", "E7 31 77 53", "60 2F B8 89"};
+
+void setup() {
+  Serial.begin(115200);
+
+  setupPins();
+  setupDisplay();
+  setupRFID();
+  connectWiFi();
+  connectMQTT();
+  setupOTA();
+
+  displayMessage("Aproxime a TAG");
+}
+
+void loop() {
+  client.loop();
+  ArduinoOTA.handle();
+
+  uint8_t uid[] = {0, 0, 0, 0, 0, 0, 0};
+  uint8_t uidLength;
+
+  bool success = nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A, uid, &uidLength, 500);
+  
+  if (success) {
+    String tagID = readTag(uid, uidLength);
+    processTag(tagID);
+    delay(1000); // Evita leituras múltiplas
+  }
+
+  delay(100);
+}
+
+void setupPins() {
+  pinMode(LOCK_PIN, OUTPUT);
+  digitalWrite(LOCK_PIN, LOW);
+}
+
+void setupDisplay() {
+  Wire.begin(OLED_SDA, OLED_SCL);
+  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println(F("Falha no display OLED"));
+    for(;;);
+  }
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.display();
+}
+
+void setupRFID() {
+  if (!nfc.begin()) {
+    Serial.println("PN532 não detectado!");
+    displayMessage("Erro PN532");
+    while(1);
+  }
+
+  uint32_t versiondata = nfc.getFirmwareVersion();
+  if (!versiondata) {
+    Serial.println("Falha na comunicação PN532");
+    displayMessage("Erro PN532");
+    while(1);
+  }
+  
+  nfc.SAMConfig();
+  Serial.println("PN532 pronto");
+}
+
+void connectWiFi() {
+  displayMessage("Conectando WiFi...");
+  WiFi.begin(ssid, password);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  
+  Serial.println("\nWiFi conectado");
+  displayMessage("WiFi OK\nIP: " + WiFi.localIP().toString());
+}
+
+void connectMQTT() {
+  displayMessage("Conectando MQTT...");
+  client.setServer(mqtt_server, 1883);
+  client.setCallback(mqttCallback);
+
+  while (!client.connected()) {
+    if (client.connect("ESP32_PN532")) {
+      Serial.println("MQTT conectado!");
+      displayMessage("MQTT OK");
+      client.subscribe("trava/liberacao");
+    } else {
+      Serial.print("Falha MQTT, rc=");
+      Serial.print(client.state());
+      delay(5000);
+    }
+  }
+}
+
+void setupOTA() {
+  ArduinoOTA.begin();
+}
+
+void displayMessage(String msg) {
+  display.clearDisplay();
+  display.setCursor(0, 10);
+  display.println(msg);
+  display.display();
+}
+
+String readTag(uint8_t *uid, uint8_t uidLength) {
+  String tagID = "";
+  for (uint8_t i = 0; i < uidLength; i++) {
+    if(uid[i] < 0x10) tagID += "0";
+    tagID += String(uid[i], HEX);
+    if (i < uidLength - 1) tagID += " ";
+  }
+  tagID.toUpperCase();
+  Serial.println("Tag lida: " + tagID);
+  return tagID;
+}
+
+void processTag(String tagID) {
+  bool authorized = false;
+  
+  for (const String &validTag : validTags) {
+    if (tagID.equalsIgnoreCase(validTag)) {
+      authorized = true;
+      break;
+    }
+  }
+
+  if (authorized) {
+    client.publish("trava/solicitacao", "solicitacao");
+    displayMessage("Tag válida\nAguarde...");
+  } else {
+    displayMessage("Tag inválida!");
+    client.publish("trava/solicitacao", "tag invalida");
+    delay(2000);
+    displayMessage("Aproxime a TAG");
+  }
+}
+
+void mqttCallback(char* topic, byte* payload, unsigned int length) {
+  String message;
+  for (unsigned int i = 0; i < length; i++) {
+    message += (char)payload[i];
+  }
+  
+  if (String(topic) == "trava/liberacao") {
+    if (message == "liberar") {
+      displayMessage("ACESSO LIBERADO");
+      digitalWrite(LOCK_PIN, HIGH);
+      delay(180000);
+      digitalWrite(LOCK_PIN, LOW);
+      displayMessage("Aproxime a TAG");
+    } else if (message == "negar") {
+      displayMessage("ACESSO NEGADO");
+      delay(2000);
+      displayMessage("Aproxime a TAG");
+    }
+  }
+}
