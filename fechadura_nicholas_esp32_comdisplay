@@ -3,73 +3,53 @@
 #include <Adafruit_SSD1306.h>
 #include <WiFi.h>
 #include <PubSubClient.h>
-#include <MFRC522.h>
+#include <Adafruit_PN532.h>
 #include <ArduinoOTA.h>
 
-// Definições de hardware e conexão física
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
 #define OLED_RESET -1
 #define OLED_SDA 4
 #define OLED_SCL 5
-
-#define SS_PIN 21   
-#define RST_PIN 22  
-#define LOCK_PIN 25 
+#define LOCK_PIN 25
 
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
-MFRC522 rfid(SS_PIN, RST_PIN);
+Adafruit_PN532 nfc(OLED_SDA, OLED_SCL);
 WiFiClient espClient;
 PubSubClient client(espClient);
 
 const char *ssid = "2CPM_ROBOTICA";
 const char *password = "#@robotica1";
-//const char *ssid = "CLARO_EF05E3";
-//const char *password = "ZqYMJvXWT7";
 const char *mqtt_server = "broker.hivemq.com";
 
-const String validTags[] = {"99 05 80 72", "E7 31 77 53", "60 2F B8 89"};
+const String validTags[] = {"23 9A A5 C5", "E7 31 77 53", "D3 F1 8F F5"};
 
-// Declaração antecipada das funções para evitar erro de escopo
-void setupPins();
-void setupDisplay();
-void setupRFID();
-void connectWiFi();
-void connectMQTT();
-void setupOTA();
-void displayMessage(String msg);
-String readTag();
-void processTag(String tagID);
-void mqttCallback(char* topic, byte* payload, unsigned int length);
+// Variáveis de estado
+unsigned long lastTagRead = 0;
+bool waitingResponse = false;
+unsigned long lockStartTime = 0;
+bool isLockActive = false;
 
 void setup() {
   Serial.begin(115200);
-
+  
   setupPins();
-  setupDisplay();
-  setupRFID();
+  setupI2CDevices();
   connectWiFi();
   connectMQTT();
   setupOTA();
 
-  displayMessage("Aproxime a TAG");
+  displayInitialScreen();
 }
 
 void loop() {
   client.loop();
   ArduinoOTA.handle();
 
-  while (true) {
-    client.loop();
-    ArduinoOTA.handle();
-    
-    if (rfid.PICC_IsNewCardPresent() && rfid.PICC_ReadCardSerial()) {
-      String tagID = readTag();
-      processTag(tagID);
-      rfid.PICC_HaltA();
-    }
-
-    delay(100);
+  if(isLockActive) {
+    handleLockState();
+  } else {
+    if(!waitingResponse) checkRFID();
   }
 }
 
@@ -78,106 +58,214 @@ void setupPins() {
   digitalWrite(LOCK_PIN, LOW);
 }
 
-void setupDisplay() {
+void setupI2CDevices() {
   Wire.begin(OLED_SDA, OLED_SCL);
-  display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
+  Wire.setClock(100000);
+
+  if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+    Serial.println("Erro no OLED!");
+    while(1);
+  }
+
+  if(!nfc.begin()) {
+    Serial.println("Erro no PN532!");
+    while(1);
+  }
+  nfc.SAMConfig();
+}
+
+void handleLockState() {
+  static unsigned long lastUpdate = 0;
+  unsigned long currentTime = millis();
+  unsigned int elapsed = (currentTime - lockStartTime) / 1000;
+  unsigned int remaining = 30 - elapsed;
+
+  if(remaining <= 0) {
+    digitalWrite(LOCK_PIN, LOW);
+    isLockActive = false;
+    displayInitialScreen();
+    return;
+  }
+
+  if(currentTime - lastUpdate >= 1000) {
+    displayLockScreen(remaining);
+    lastUpdate = currentTime;
+  }
+}
+
+void displayInitialScreen() {
   display.clearDisplay();
+  displayHeader();
   display.setTextSize(1);
-  display.setTextColor(WHITE);
-}
-
-void setupRFID() {
-  SPI.begin();
-  rfid.PCD_Init();
-}
-
-void connectWiFi() {
-  displayMessage("Conectando ao WiFi...");
-  WiFi.begin(ssid, password);
-
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(1000);
-    Serial.print(".");
-  }
-  
-  Serial.println("\nWiFi conectado!");
-  displayMessage("WiFi OK\nIP: " + WiFi.localIP().toString());
-}
-
-void connectMQTT() {
-  displayMessage("Conectando ao MQTT...");
-  client.setServer(mqtt_server, 1883);
-  client.setCallback(mqttCallback);
-
-  while (!client.connected()) {
-    if (client.connect("ESP32_Client")) {
-      Serial.println("Conectado ao MQTT!");
-      displayMessage("MQTT OK");
-      client.subscribe("trava/liberacao");
-    } else {
-      Serial.print("Falha na conexão MQTT. Tentando novamente...");
-      delay(5000);
-    }
-  }
-}
-
-void setupOTA() {
-  ArduinoOTA.begin();
-}
-
-void displayMessage(String msg) {
-  display.clearDisplay();
-  display.setCursor(0, 10);
-  display.println(msg);
+  display.setCursor(0, 15);
+  display.println("Aproxime a TAG");
   display.display();
 }
 
-String readTag() {
-  String tagID = "";
-  for (byte i = 0; i < rfid.uid.size; i++) {
-    tagID += String(rfid.uid.uidByte[i], HEX);
-    if (i < rfid.uid.size - 1) tagID += " ";
-  }
+void displayHeader() {
+  display.setTextSize(1);
+  display.setTextColor(SSD1306_WHITE);
+  display.setCursor(0,0);
+  display.println("CPM Security");
+  display.drawFastHLine(0, 10, SCREEN_WIDTH, SSD1306_WHITE);
+}
+
+void displayLockScreen(int remaining) {
+  display.clearDisplay();
+  displayHeader();
   
-  Serial.println("Tag lida: " + tagID);
+  // Mensagem principal
+  display.setTextSize(1);
+  display.setCursor(0, 15);
+  display.println("Acesso Liberado");
+
+  // Contagem regressiva centralizada
+  display.setTextSize(2);
+  String countdown = String(remaining);
+  int x = (SCREEN_WIDTH - (countdown.length() * 12)) / 2; // 12px por caractere no size 2
+  display.setCursor(x, 30);
+  display.println(countdown);
+
+  display.display();
+}
+
+void checkRFID() {
+  if(millis() - lastTagRead < 1000) return;
+  
+  uint8_t uid[7];
+  uint8_t uidLength;
+  
+  if(nfc.readPassiveTargetID(PN532_MIFARE_ISO14443A, uid, &uidLength, 100)) {
+    String tagID = convertUidToString(uid, uidLength);
+    processTag(tagID);
+    lastTagRead = millis();
+  }
+}
+
+String convertUidToString(uint8_t *uid, uint8_t length) {
+  String tagID = "";
+  for(uint8_t i=0; i<length; i++) {
+    if(uid[i] < 0x10) tagID += "0";
+    tagID += String(uid[i], HEX);
+    if(i < length-1) tagID += " ";
+  }
+  tagID.toUpperCase();
   return tagID;
 }
 
 void processTag(String tagID) {
   bool authorized = false;
-  
-  for (String validTag : validTags) {
-    if (tagID.equalsIgnoreCase(validTag)) {
+  for(const String &validTag : validTags) {
+    if(tagID.equalsIgnoreCase(validTag)) {
       authorized = true;
       break;
     }
   }
 
-  if (!authorized) {
-    displayMessage("Não autorizado");
-    client.publish("trava/solicitacao", "tag invalida");
+  if(authorized) {
+    client.publish("trava/solicitacao", "solicitacao");
+    waitingResponse = true;
+    display.clearDisplay();
+    displayHeader();
+    display.setCursor(0, 15);
+    display.println("Autorizado\nAguarde...");
+    display.display();
+  } else {
+    display.clearDisplay();
+    displayHeader();
+    display.setCursor(0, 15);
+    display.println("Tag invalida!");
+    display.display();
     delay(2000);
-    return;
+    displayInitialScreen();
   }
+}
 
-  client.publish("trava/solicitacao", "solicitacao");
+void connectWiFi() {
+  display.clearDisplay();
+  displayHeader();
+  display.setCursor(0, 15);
+  display.println("Conectando WiFi...");
+  display.display();
+  
+  WiFi.begin(ssid, password);
+  
+  unsigned long start = millis();
+  while(WiFi.status() != WL_CONNECTED && millis() - start < 15000) {
+    delay(500);
+    Serial.print(".");
+  }
+  
+  if(WiFi.status() == WL_CONNECTED) {
+    displayInitialScreen();
+  } else {
+    display.clearDisplay();
+    displayHeader();
+    display.setCursor(0, 15);
+    display.println("Falha WiFi!");
+    display.display();
+    delay(2000);
+    ESP.restart();
+  }
+}
+
+void connectMQTT() {
+  client.setServer(mqtt_server, 1883);
+  client.setCallback(mqttCallback);
+  
+  while(!client.connected()) {
+    if(client.connect("ESP32_SmartLock")) {
+      client.subscribe("trava/liberacao");
+      break;
+    }
+    delay(5000);
+  }
 }
 
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
-  String message = "";
-  for (unsigned int i = 0; i < length; i++) {
+  String message;
+  for(unsigned int i=0; i<length; i++) {
     message += (char)payload[i];
   }
-  
-  if (String(topic) == "trava/liberacao") {
-    if (message == "liberar") {
-      displayMessage("Liberado");
+
+  if(String(topic) == "trava/liberacao") {
+    waitingResponse = false;
+    
+    if(message == "liberar") {
       digitalWrite(LOCK_PIN, HIGH);
-      delay(180000);
-      digitalWrite(LOCK_PIN, LOW);
-    } else if (message == "negar") {
-      displayMessage("Não autorizado");
+      lockStartTime = millis();
+      isLockActive = true;
+      displayLockScreen(30);
+    }
+    else {
+      display.clearDisplay();
+      displayHeader();
+      display.setCursor(0, 15);
+      display.println("Acesso Negado!");
+      display.display();
       delay(2000);
+      displayInitialScreen();
     }
   }
+}
+
+void setupOTA() {
+  ArduinoOTA
+    .onStart([]() {
+      display.clearDisplay();
+      displayHeader();
+      display.setCursor(0, 15);
+      display.println("Atualizando...");
+      display.display();
+    })
+    .onEnd([]() {
+      display.clearDisplay();
+      displayHeader();
+      display.setCursor(0, 15);
+      display.println("Atualizacao OK!");
+      display.display();
+      delay(2000);
+    });
+
+  ArduinoOTA.begin();
 }
