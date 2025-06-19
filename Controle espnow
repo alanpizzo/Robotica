@@ -1,0 +1,95 @@
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <WiFi.h>
+
+#define OLED_ADDR 0x3C
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+
+#define JOY_ESQ_Y 34
+#define JOY_DIR_Y 35
+#define B1 21
+#define B2 22
+#define B3 19
+#define B4 18
+
+int modo = 0; // 0 = controle | 1 = menu
+unsigned long ultimoClique = 0;
+const int debounce = 300;
+
+void setup() {
+  Serial.begin(115200);
+
+  pinMode(B1, INPUT_PULLUP);
+  pinMode(B2, INPUT_PULLUP);
+  pinMode(B3, INPUT_PULLUP);
+  pinMode(B4, INPUT_PULLUP);
+
+  Wire.begin(23, 22);
+  display.begin(SSD1306_SWITCHCAPVCC, OLED_ADDR);
+  display.clearDisplay();
+  display.display();
+
+  WiFi.mode(WIFI_STA); // Para obter MAC local
+}
+
+void loop() {
+  // Alterna modo com botão B4
+  if (digitalRead(B4) == LOW && (millis() - ultimoClique) > debounce) {
+    modo = !modo;
+    ultimoClique = millis();
+  }
+
+  if (modo == 0) {
+    desenhaTelaControle();
+  } else {
+    desenhaMenuPareamento();
+  }
+
+  delay(100);
+}
+
+// === TELA DE CONTROLE COM BARRAS ===
+void desenhaTelaControle() {
+  int valEsq = analogRead(JOY_ESQ_Y);
+  int valDir = analogRead(JOY_DIR_Y);
+  int hEsq = map(valEsq, 0, 4095, 0, 64);
+  int hDir = map(valDir, 0, 4095, 0, 64);
+
+  display.clearDisplay();
+
+  display.drawRect(30, 0, 10, 64, WHITE);
+  display.fillRect(30, 64 - hEsq, 10, hEsq, WHITE);
+  display.drawRect(88, 0, 10, 64, WHITE);
+  display.fillRect(88, 64 - hDir, 10, hDir, WHITE);
+
+  display.setTextSize(1);
+  display.setCursor(0, 0);
+  display.printf("B1:%d B2:%d\n", digitalRead(B1) == LOW, digitalRead(B2) == LOW);
+  display.printf("B3:%d B4:%d", digitalRead(B3) == LOW, digitalRead(B4) == LOW);
+
+  display.display();
+}
+
+// === MENU DE PAREAMENTO ===
+void desenhaMenuPareamento() {
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setCursor(0, 0);
+  display.println("Menu de Conexao:");
+
+  // Mostra MAC local
+  uint8_t mac[6];
+  WiFi.macAddress(mac);
+  display.printf("MAC Local:\n%02X:%02X:%02X:%02X:%02X:%02X\n",
+    mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+
+  display.setCursor(0, 40);
+  display.println("B3 = Adicionar peer");
+  display.println("B2 = Limpar pares");
+
+  display.display();
+}
